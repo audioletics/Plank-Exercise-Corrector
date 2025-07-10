@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
-import 'package:tflite_flutter_plus/tflite_flutter_plus.dart';
+import 'package:tflite_flutter/tflite_flutter.dart';
 class PlankDetector {
   static const String _modelPath = 'assets/ml/plank_model.tflite';
   static const String _scalerPath = 'assets/ml/plank_input_scaler.json';

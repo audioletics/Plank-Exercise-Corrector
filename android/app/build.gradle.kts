@@ -28,10 +28,18 @@ android {
     }
 
     buildTypes {
-        release {
+        getByName("release") {
+            // Mengaktifkan R8 untuk memperkecil ukuran APK
+            isMinifyEnabled = true
+            
+            // Menentukan file aturan ProGuard untuk R8
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+            // Namun, untuk rilis resmi ke Play Store, gunakan key Anda sendiri.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
 
     aaptOptions {
         noCompress("tflite")  // Your model's file extension: "tflite", "lite", etc.
