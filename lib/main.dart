@@ -77,6 +77,15 @@ class Home extends StatelessWidget {
                     height: 20,
                   ),
                   ExpansionTile(
+                    title: const Text('Exercise Corrector'),
+                    children: [
+                      CustomCard('Plank Exercise Corrector', PlankDetectorView()),
+                    ],
+                  ),
+                  SizedBox(
+                    height: 20,
+                  ),
+                  ExpansionTile(
                     title: const Text('Natural Language APIs'),
                     children: [
                       CustomCard('Language ID', LanguageIdentifierView()),
