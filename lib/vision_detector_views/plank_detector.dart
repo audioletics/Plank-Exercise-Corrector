@@ -55,13 +55,13 @@ class PlankDetector {
   
 
 
-  Map<String, dynamic> detect(List<Pose> poses, Size imageSize, Uint8List imageBytes, int timestamp) {
+  Map<String, dynamic> detect(List<Pose> poses, Size imageSize, InputImageRotation rotation, Uint8List imageBytes, int timestamp) {
     if (poses.isEmpty) {
       return {'stage': 'unknown', 'probability': 0.0, 'hasError': false};
     }
 
     try {
-      final keypoints = _extractKeypoints(poses.first, imageSize);
+      final keypoints = _extractKeypoints(poses.first, imageSize, rotation);
       // --- PERBAIKAN: Terapkan scaling pada input ---
       // TAMBAHKAN PRINT DI SINI
       print('Jumlah Keypoints: ${keypoints.length}'); // Harusnya 68
@@ -82,24 +82,46 @@ class PlankDetector {
     }
   }
 
-  List<double> _extractKeypoints(Pose pose, Size imageSize) {
+  List<double> _extractKeypoints(Pose pose, Size imageSize, InputImageRotation rotation) {
     List<double> keypoints = [];
     for (final landmarkType in _importantLandmarks) {
       final landmark = pose.landmarks[landmarkType];
       if (landmark != null) {
+        double dx = landmark.x;
+        double dy = landmark.y;
+        double normalizedX;
+        double normalizedY;
+
+        // Logika untuk handle rotasi
+        switch (rotation) {
+          case InputImageRotation.rotation90deg:
+          case InputImageRotation.rotation270deg:
+            // Saat gambar dirotasi 90/270 (portrait), sumbu x dan y tertukar
+            normalizedX = dy / imageSize.height;
+            normalizedY = dx / imageSize.width;
+            break;
+          default: // Termasuk rotation0deg dan rotation180deg (landscape)
+            normalizedX = dx / imageSize.width;
+            normalizedY = dy / imageSize.height;
+        }
+
         keypoints.addAll([
-          // Lakukan normalisasi di sini
-          landmark.x / imageSize.width,
-          landmark.y / imageSize.height,
-          landmark.z, // z dan likelihood tidak perlu dinormalisasi
+          normalizedX,
+          normalizedY,
+          landmark.z,
           landmark.likelihood,
         ]);
+
+        print('Rotation: $rotation | Raw: (${dx.toStringAsFixed(2)}, ${dy.toStringAsFixed(2)}) | Norm: (${normalizedX.toStringAsFixed(2)}, ${normalizedY.toStringAsFixed(2)})');
+
+
       } else {
         keypoints.addAll([0.0, 0.0, 0.0, 0.0]);
       }
     }
     return keypoints;
   }
+
 
   // --- PERBAIKAN: Hapus fungsi _getLandmarkByName karena tidak lagi dibutuhkan ---
 

@@ -112,12 +112,13 @@ class _PlankDetectorViewState extends State<PlankDetectorView> {
     final poses = await _poseDetector.processImage(inputImage);
 
     final imageSize = inputImage.metadata?.size;
-
+    final imageRotation = inputImage.metadata?.rotation; 
     
     if (poses.isNotEmpty && inputImage.bytes != null) {
       final result = _plankDetector.detect(
         poses, 
         imageSize!,
+        imageRotation!,
         inputImage.bytes!, 
         DateTime.now().millisecondsSinceEpoch,
       );
