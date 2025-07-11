@@ -52,35 +52,47 @@ class PlankDetector {
     }
   }
 
-  Map<String, dynamic> detect(List<Pose> poses, Uint8List imageBytes, int timestamp) {
+  
+
+
+  Map<String, dynamic> detect(List<Pose> poses, Size imageSize, Uint8List imageBytes, int timestamp) {
     if (poses.isEmpty) {
       return {'stage': 'unknown', 'probability': 0.0, 'hasError': false};
     }
 
     try {
-      final keypoints = _extractKeypoints(poses.first);
+      final keypoints = _extractKeypoints(poses.first, imageSize);
       // --- PERBAIKAN: Terapkan scaling pada input ---
-      final scaledInput = _scaleInput(keypoints);
-      final prediction = _predict(scaledInput);
+      // TAMBAHKAN PRINT DI SINI
+      print('Jumlah Keypoints: ${keypoints.length}'); // Harusnya 68
+
+      //  No need to scale input the model expects raw keypoints
+      // final scaledInput = _scaleInput(keypoints);
+
+      // // TAMBAHKAN PRINT LAGI DI SINI
+      print('Input ke Model (Sudah Normalisasi): $keypoints'); // Cek apakah ada nilai aneh seperti NaN atau Infinity
+
+      final prediction = _predict(keypoints);
       final result = _evaluatePrediction(prediction, imageBytes, timestamp);
 
       return result;
     } catch (e) {
+      print('ERROR TERJADI DI DALAM DETECT: $e');
       return {'stage': 'error', 'probability': 0.0, 'hasError': false, 'error': e.toString()};
     }
   }
 
-  List<double> _extractKeypoints(Pose pose) {
+  List<double> _extractKeypoints(Pose pose, Size imageSize) {
     List<double> keypoints = [];
-    // --- PERBAIKAN: Loop langsung menggunakan list enum ---
     for (final landmarkType in _importantLandmarks) {
       final landmark = pose.landmarks[landmarkType];
       if (landmark != null) {
         keypoints.addAll([
-          landmark.x,
-          landmark.y,
-          landmark.z,
-          landmark.likelihood, // Gunakan likelihood jika tersedia
+          // Lakukan normalisasi di sini
+          landmark.x / imageSize.width,
+          landmark.y / imageSize.height,
+          landmark.z, // z dan likelihood tidak perlu dinormalisasi
+          landmark.likelihood,
         ]);
       } else {
         keypoints.addAll([0.0, 0.0, 0.0, 0.0]);
@@ -93,8 +105,8 @@ class PlankDetector {
 
   // --- PERBAIKAN: Implementasi logic untuk scaling input ---
   List<double> _scaleInput(List<double> input) {
-    final mean = List<double>.from(_scaler['mean_']);
-    final scale = List<double>.from(_scaler['scale_']);
+    final mean = List<double>.from(_scaler['mean']);
+    final scale = List<double>.from(_scaler['scale']);
     List<double> scaledInput = List<double>.filled(input.length, 0.0);
 
     for (int i = 0; i < input.length; i++) {

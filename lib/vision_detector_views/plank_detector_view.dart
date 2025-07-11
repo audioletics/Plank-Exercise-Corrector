@@ -110,15 +110,24 @@ class _PlankDetectorViewState extends State<PlankDetectorView> {
     });
 
     final poses = await _poseDetector.processImage(inputImage);
+
+    final imageSize = inputImage.metadata?.size;
+
     
     if (poses.isNotEmpty && inputImage.bytes != null) {
       final result = _plankDetector.detect(
         poses, 
+        imageSize!,
         inputImage.bytes!, 
         DateTime.now().millisecondsSinceEpoch,
       );
 
-      if (inputImage.metadata?.size != null &&
+      // --- PERBAIKAN: Cek apakah ada key 'error' pada hasil deteksi ---
+      if (result.containsKey('error')) {
+        // Jika ada error, tampilkan pesan error-nya
+        _text = 'Error: ${result['error']}';
+        _customPaint = null; // Kosongkan painter
+      } else if (inputImage.metadata?.size != null &&
           inputImage.metadata?.rotation != null) {
         final painter = PlankPosePainter(
           poses,
@@ -132,8 +141,8 @@ class _PlankDetectorViewState extends State<PlankDetectorView> {
         _customPaint = CustomPaint(painter: painter);
       } else {
         _text = 'Stage: ${result['stage']}\n'
-               'Probability: ${(result['probability'] as double).toStringAsFixed(2)}\n'
-               'Poses detected: ${poses.length}';
+            'Probability: ${(result['probability'] as double).toStringAsFixed(2)}\n'
+            'Poses detected: ${poses.length}';
         _customPaint = null;
       }
     } else {
@@ -146,6 +155,7 @@ class _PlankDetectorViewState extends State<PlankDetectorView> {
       setState(() {});
     }
   }
+
 
   void _clearResults() {
     _plankDetector.clearResults();
