@@ -110,26 +110,25 @@ class _PlankDetectorViewState extends State<PlankDetectorView> {
     });
 
     final poses = await _poseDetector.processImage(inputImage);
-
-    final imageSize = inputImage.metadata?.size;
-    final imageRotation = inputImage.metadata?.rotation; 
     
     if (poses.isNotEmpty && inputImage.bytes != null) {
+      // --- PERBAIKAN DI SINI ---
+      // Panggil detect dengan 3 argumen yang benar, hapus imageSize dan imageRotation.
       final result = _plankDetector.detect(
-        poses, 
-        imageSize!,
-        imageRotation!,
-        inputImage.bytes!, 
+        poses,
+        inputImage.bytes!,
         DateTime.now().millisecondsSinceEpoch,
       );
 
-      // --- PERBAIKAN: Cek apakah ada key 'error' pada hasil deteksi ---
+      // --- Cek apakah ada key 'error' pada hasil deteksi ---
       if (result.containsKey('error')) {
         // Jika ada error, tampilkan pesan error-nya
         _text = 'Error: ${result['error']}';
         _customPaint = null; // Kosongkan painter
       } else if (inputImage.metadata?.size != null &&
           inputImage.metadata?.rotation != null) {
+        // Bagian ini sudah benar. Painter tetap membutuhkan metadata asli
+        // untuk menggambar skeleton dengan benar di layar.
         final painter = PlankPosePainter(
           poses,
           inputImage.metadata!.size,

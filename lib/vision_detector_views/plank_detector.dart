@@ -3,8 +3,19 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'dart:math';
+
+class Vector3 {
+  double x, y, z;
+  Vector3(this.x, this.y, this.z);
+
+  Vector3 operator -(Vector3 other) => Vector3(x - other.x, y - other.y, z - other.z);
+  Vector3 operator /(double scalar) => Vector3(x / scalar, y / scalar, z / scalar);
+  double norm() => sqrt(x * x + y * y + z * z);
+}
+
 class PlankDetector {
-  static const String _modelPath = 'assets/ml/plank_model.tflite';
+  static const String _modelPath = 'assets/ml/plank_model_norm_60.tflite';
   static const String _scalerPath = 'assets/ml/plank_input_scaler.json';
   static const double _predictionThreshold = 0.6;
 
@@ -55,31 +66,128 @@ class PlankDetector {
   
 
 
-  Map<String, dynamic> detect(List<Pose> poses, Size imageSize, InputImageRotation rotation, Uint8List imageBytes, int timestamp) {
+  Map<String, dynamic> detect(List<Pose> poses, Uint8List imageBytes, int timestamp) {
     if (poses.isEmpty) {
       return {'stage': 'unknown', 'probability': 0.0, 'hasError': false};
     }
-
     try {
-      final keypoints = _extractKeypoints(poses.first, imageSize, rotation);
-      // --- PERBAIKAN: Terapkan scaling pada input ---
-      // TAMBAHKAN PRINT DI SINI
-      print('Jumlah Keypoints: ${keypoints.length}'); // Harusnya 68
+      // 1. Panggil fungsi pre-processing yang baru
+      final features = _processPoseFeatures(poses.first);
 
-      //  No need to scale input the model expects raw keypoints
-      // final scaledInput = _scaleInput(keypoints);
-
-      // // TAMBAHKAN PRINT LAGI DI SINI
-      print('Input ke Model (Sudah Normalisasi): $keypoints'); // Cek apakah ada nilai aneh seperti NaN atau Infinity
-
-      final prediction = _predict(keypoints);
+      // 2. Jika fitur tidak bisa dibuat (pose tidak lengkap), kembalikan status 'unknown'
+      if (features == null) {
+        return {'stage': 'unknown', 'probability': 0.0, 'hasError': false};
+      }
+      
+      // 3. Masukkan fitur ke model untuk prediksi
+      final prediction = _predict(features);
+      
+      // 4. Evaluasi hasil prediksi
       final result = _evaluatePrediction(prediction, imageBytes, timestamp);
-
       return result;
+
     } catch (e) {
       print('ERROR TERJADI DI DALAM DETECT: $e');
       return {'stage': 'error', 'probability': 0.0, 'hasError': false, 'error': e.toString()};
     }
+  }
+
+
+  List<double>? _processPoseFeatures(Pose pose) {
+    
+    // --- Langkah A: Ekstrak koordinat mentah ke dalam objek Vector3 ---
+    final Map<PoseLandmarkType, Vector3> coords = {};
+    pose.landmarks.forEach((type, landmark) {
+      coords[type] = Vector3(landmark.x, landmark.y, landmark.z);
+    });
+
+    // Cek apakah landmark kunci untuk normalisasi terdeteksi
+    final requiredForNorm = [PoseLandmarkType.leftHip, PoseLandmarkType.rightHip, PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder];
+    for (var type in requiredForNorm) {
+      if (coords[type] == null) {
+        print('Preprocessing Gagal: Landmark ${type.name} untuk normalisasi tidak ditemukan.');
+        return null; 
+      }
+    }
+
+    // --- Langkah B: Normalisasi Posisi (Translation) ---
+    final leftHip = coords[PoseLandmarkType.leftHip]!;
+    final rightHip = coords[PoseLandmarkType.rightHip]!;
+    final hipCenter = Vector3((leftHip.x + rightHip.x) / 2, (leftHip.y + rightHip.y) / 2, (leftHip.z + rightHip.z) / 2);
+    
+    final Map<PoseLandmarkType, Vector3> translatedCoords = {};
+    coords.forEach((type, landmark) {
+      translatedCoords[type] = landmark - hipCenter;
+    });
+    
+    // --- Langkah C: Normalisasi Skala ---
+    final leftShoulder = translatedCoords[PoseLandmarkType.leftShoulder]!;
+    final rightShoulder = translatedCoords[PoseLandmarkType.rightShoulder]!;
+    final shoulderCenter = Vector3((leftShoulder.x + rightShoulder.x) / 2, (leftShoulder.y + rightShoulder.y) / 2, (leftShoulder.z + rightShoulder.z) / 2);
+    
+    final torsoSize = shoulderCenter.norm();
+    if (torsoSize < 1e-6) {
+      print('Preprocessing Gagal: Ukuran torso tidak valid.');
+      return null;
+    }
+
+    final Map<PoseLandmarkType, Vector3> finalCoords = {};
+    translatedCoords.forEach((type, landmark) {
+      finalCoords[type] = landmark / torsoSize;
+    });
+
+    // --- Langkah D: Hitung Fitur Sudut ---
+    final Map<String, double> angles = {};
+    double
+    calculateAngle(PoseLandmarkType a, PoseLandmarkType b, PoseLandmarkType c) {
+      if (finalCoords[a] != null && finalCoords[b] != null && finalCoords[c] != null) {
+        return _calculateAngle(finalCoords[a]!, finalCoords[b]!, finalCoords[c]!);
+      }
+      return 0.0; // Kembalikan 0 jika salah satu landmark tidak ada
+    }
+
+    angles['L_ELBOW'] = calculateAngle(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.leftWrist);
+    angles['R_ELBOW'] = calculateAngle(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow, PoseLandmarkType.rightWrist);
+    angles['L_SHOULDER'] = calculateAngle(PoseLandmarkType.leftHip, PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow);
+    angles['R_SHOULDER'] = calculateAngle(PoseLandmarkType.rightHip, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow);
+    angles['L_HIP'] = calculateAngle(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee);
+    angles['R_HIP'] = calculateAngle(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee);
+    angles['L_KNEE'] = calculateAngle(PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle);
+    angles['R_KNEE'] = calculateAngle(PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle);
+    angles['BACK'] = calculateAngle(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.leftAnkle);
+
+    // --- Langkah E: Gabungkan Semua Fitur menjadi satu List ---
+    final List<double> featureRow = [];
+    final landmarksToProcess = [
+      PoseLandmarkType.nose, PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightElbow,
+      PoseLandmarkType.leftWrist, PoseLandmarkType.rightWrist, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip, PoseLandmarkType.leftKnee,
+      PoseLandmarkType.rightKnee, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightAnkle, PoseLandmarkType.leftHeel, PoseLandmarkType.rightHeel,
+      PoseLandmarkType.leftFootIndex, PoseLandmarkType.rightFootIndex,
+    ];
+
+    // 1. Tambahkan 51 fitur koordinat (17 landmark * 3)
+    for (var type in landmarksToProcess) {
+      final coord = finalCoords[type] ?? Vector3(0,0,0); // Jika landmark tidak ada, gunakan (0,0,0)
+      featureRow.addAll([coord.x, coord.y, coord.z]);
+    }
+    // 2. Tambahkan 9 fitur sudut
+    featureRow.addAll(angles.values);
+    
+    return featureRow; // Total 60 fitur
+  }
+
+  double _calculateAngle(Vector3 a, Vector3 b, Vector3 c) {
+    // ... (Fungsi ini tidak berubah) ...
+    final vecBA = a - b;
+    final vecBC = c - b;
+    final dotProduct = (vecBA.x * vecBC.x) + (vecBA.y * vecBC.y) + (vecBA.z * vecBC.z);
+    final normBA = vecBA.norm();
+    final normBC = vecBC.norm();
+    if (normBA == 0 || normBC == 0) return 0.0;
+    var cosineAngle = dotProduct / (normBA * normBC);
+    cosineAngle = cosineAngle.clamp(-1.0, 1.0);
+    final angle = acos(cosineAngle);
+    return angle * (180 / pi);
   }
 
   List<double> _extractKeypoints(Pose pose, Size imageSize, InputImageRotation rotation) {
@@ -162,8 +270,8 @@ class PlankDetector {
     if (maxProb >= _predictionThreshold) {
       switch (maxIndex) {
         case 0: currentStage = "correct"; break;
-        case 1: currentStage = "low back"; break;
-        case 2: currentStage = "high back"; break;
+        case 1: currentStage = "high back"; break;
+        case 2: currentStage = "low back"; break;
         default: currentStage = "unknown";
       }
     } else {
